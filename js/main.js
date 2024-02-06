@@ -89,21 +89,16 @@ const EVALUATION = urlParams.get('evaluation');
 // on page ready
 $(document).ready(async function() {
   // on long press of logo
-  let pressTimer;
-  $('#unregister').on('mousedown', function() {
-    pressTimer = window.setTimeout(function() {
-      // unregister service worker
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) {
-          registration.unregister();
-        }
-      });
+  $('#unregister').dblclick(function() {
+    // unregister service worker
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      for(let registration of registrations) {
+        registration.unregister();
+      }
+    });
 
-      // show success toast
-      toast('Service worker unregistered', 'success');
-    }, 2000);
-  }).on('mouseup', function() {
-    clearTimeout(pressTimer);
+    // show success toast
+    toast('Service worker unregistered', 'success');
   });
 
   // load clients from local storage
