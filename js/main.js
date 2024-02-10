@@ -1,5 +1,6 @@
 // global variables
 let CLIENTS = [];
+$('#syncClients').removeClass('btn-success')
 
 const EVALUATIONS = {
   BPRS: {
@@ -101,11 +102,27 @@ $(document).ready(async function() {
     toast('Service worker unregistered', 'success');
   });
 
-  // load clients from local storage
-  if (localStorage.getItem('clients')) {
-    CLIENTS = JSON.parse(localStorage.getItem('clients'));
+  // load clients from API
+  try {
+    const data = await getClients();
+    CLIENTS = data;
+  }
+  catch (error) {
+    console.error(error);
   }
 
+  // load clients from local storage
+  if (localStorage.getItem('clients')) {
+    CLIENTS.push(...JSON.parse(localStorage.getItem('clients')));
+  }
+
+  // eliminate duplicates
+  CLIENTS = eliminateDuplicates(CLIENTS);
+
+  // set clients to local storage
+  localStorage.setItem('clients', JSON.stringify(CLIENTS));
+
+  // if client and evaluation exists
   if (CLIENT && EVALUATION) {
     // if client and evaluation exists, evaluate client
     if (CLIENT < CLIENTS.length && EVALUATION in EVALUATIONS) {
@@ -134,7 +151,20 @@ $(document).ready(async function() {
   $('#loading').addClass('d-none');
   $('#clients_page').removeClass('d-none');
 
-  $('#addClientForm').submit(function(e) {
+  $('#syncClients').click(async function() {
+    try {
+      await syncClients();
+      toast('Clients synced successfully', 'success');
+    }
+    catch (error) {
+      $('#syncClients').addClass('btn-warning');
+      $('#syncClients').removeClass('btn-success')
+      toast('Failed to sync clients', 'danger');
+      console.error(error);
+    }
+  });
+
+  $('#addClientForm').submit(async function(e) {
     e.preventDefault();
   
     // get form data
@@ -160,7 +190,14 @@ $(document).ready(async function() {
   
     // save clients to local storage
     localStorage.setItem('clients', JSON.stringify(CLIENTS));
-  
+    try {
+      await syncClients();
+    } catch (error) {
+      $('#syncClients').addClass('btn-warning');
+      $('#syncClients').removeClass('btn-success')
+      console.error(error);
+    }
+      
     // render clients
     renderClients();
   
@@ -188,17 +225,47 @@ $(document).ready(async function() {
     history.pushState(null, null, `?client=${index}`);
   });
 
-  $('#clients_table').on('click', '.deleteClient', function() {
+  $('#clients_table').on('click', '.deleteClient', async function() {
     const index = $(this).data('client-id');
 
     CLIENTS.splice(index, 1);
     localStorage.setItem('clients', JSON.stringify(CLIENTS));
+
+    try {
+      await syncClients();
+    } catch (error) {
+      $('#syncClients').addClass('btn-warning');
+      $('#syncClients').removeClass('btn-success')
+      console.error(error);
+    }
+
     renderClients();
     toast('Client deleted successfully', 'success');
   });
+
+  $('#client_view_page').on('click', '.back', function() {
+    defaultView();
+  });
+
+  $('#client_evaluation_page').on('click', '.back', function() {
+    defaultView();
+  });
+
 });
 
 // UTILITY FUNCTIONS
+function defaultView() {
+  $('#client_view_page').addClass('d-none');
+  $('#client_evaluation_page').addClass('d-none');
+  $('#clients_page').removeClass('d-none');
+
+  // push url to history
+  history.pushState(null, null, '/');
+
+  // render clients
+  renderClients();
+}
+
 // toast function
 function toast(message, type) {
   // createa a bootstrap toast with success or danger
@@ -296,7 +363,7 @@ function evaluate (evaluation, index) {
   const client = CLIENTS[index];
 
   // create a form for evaluation
-  const form = $(`<form id="evaluationForm" class="d-flex flex-column flex-wrap justify-content-center g-3" data-bs-theme="dark"></form>`);
+  const form = $(`<form id="evaluationForm" class="d-flex flex-column flex-wrap justify-content-center g-3"></form>`);
 
   // add questions to form
   const questions = EVALUATIONS[evaluation].questions;
@@ -348,7 +415,7 @@ function evaluate (evaluation, index) {
   $('#evaluation_form').append(form);
 
   // on aswer change
-  $('.answer').change(function() {
+  $('.answer').change(async function() {
     // get question and answer
     const question = $(this).attr('name');
     const answer = $(this).val();
@@ -367,9 +434,47 @@ function evaluate (evaluation, index) {
     // save clients to local storage
     localStorage.setItem('clients', JSON.stringify(CLIENTS));
 
+    try {
+      await syncClients();
+    } catch (error) {
+      $('#syncClients').addClass('btn-warning');
+      $('#syncClients').removeClass('btn-success');
+      console.error(error);
+    }
+
     // show success toast
     toast('Assessment saved', 'success');
   });
+}
+
+function calculateTotalScore (evaluation, evaluationType) {
+  let total = 0;
+
+  if (evaluationType === 'PANSS') {
+    // calulate P, N, G scores separately
+    let P = 0;
+    let N = 0;
+    let G = 0;
+
+    for (const question in evaluation) {
+      const score = parseInt(evaluation[question]);
+      if (question.startsWith('P')) {
+        P += score;
+      } else if (question.startsWith('N')) {
+        N += score;
+      } else if (question.startsWith('G')) {
+        G += score;
+      }
+    }
+
+    return `P: ${P}, N: ${N}, G: ${G}`;
+  }
+
+  for (const question in evaluation) {
+    total += parseInt(evaluation[question]);
+  }
+
+  return total;
 }
 
 function view (index) {
@@ -389,16 +494,27 @@ function view (index) {
     const div = $(`
       <div class="evaluation">
         <h4 class="text-center">${evaluation}</h4>
+        <h4 class="text-center">
+          <badge class="badge bg-primary">
+            Total Score: ${calculateTotalScore(evaluations[evaluation], evaluation)}
+          </badge>
+        </h4>
+        <hr>
         <div class="questions"></div>
       </div>
     `);
 
     for (const question in questions) {
+      if (!evaluations[evaluation][question]) {
+        continue;
+      }
       const questionDiv = $(`
         <div class="question">
-          <h5><strong>${question}</strong></h5>
-          <p class="m-0">${questions[question]}</p>
-          <p><strong>Answer:</strong> ${scores[evaluations[evaluation][question]]}</p>
+          <h5><strong>${question}:</strong>
+          <badge class="badge bg-primary">
+            ${evaluations[evaluation][question]} ${scores[evaluations[evaluation][question]]}
+          </badge>
+          </h5>
         </div>
       `);
       div.find('.questions').append(questionDiv);
@@ -409,4 +525,45 @@ function view (index) {
 
   $('#clients_page').addClass('d-none');
   $('#client_view_page').removeClass('d-none');
+}
+
+const API = 'https://pagalkhanaevaluation-024d.restdb.io/rest/clientsdata';
+// REST API for clients
+async function getClients() {
+  const response = await fetch(API, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-apikey': '65c77f3412be420d207b573c	',
+    },
+  });
+
+  const data = await response.json();
+  return data;
+}
+
+async function syncClients() {
+  const response = await fetch(API, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-apikey': '65c77f3412be420d207b573c	',
+    },
+    body: JSON.stringify(CLIENTS),
+  });
+
+  console.log(response)
+
+  const data = await response.json();
+
+  $('#syncClients').addClass('btn-success');
+  $('#syncClients').removeClass('btn-warning');
+
+  return data;
+}
+
+function eliminateDuplicates(arr) {
+  return arr.filter((item, index) => {
+    return arr.findIndex(t => t.name === item.name) === index;
+  });
 }
