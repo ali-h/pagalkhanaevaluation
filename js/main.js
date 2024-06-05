@@ -1,5 +1,6 @@
 // global variables
 let CLIENTS = [];
+let searchedClients = [];
 
 // url params
 const urlParams = new URLSearchParams(window.location.search);
@@ -170,6 +171,16 @@ $(document).ready(async function() {
     defaultView();
   });
 
+  $('#searchClients').on('keyup', function() {
+    const search = $(this).val().toLowerCase();
+    console.log(search);
+    searchedClients = CLIENTS.filter(client => client.name.toLowerCase().includes(search));
+    renderClients();
+  });
+
+  $('#printEvaluation').click(function() {
+    window.print();
+  });
 });
 
 // UTILITY FUNCTIONS
@@ -234,7 +245,12 @@ function downloadFile(filename, text) {
 }
 
 renderClients = async () => {
-  if (!CLIENTS.length > 0) {
+  let localClients = CLIENTS;
+  if (searchedClients.length > 0) {
+    localClients = searchedClients;
+  }
+
+  if (!localClients.length > 0) {
     $('#clients_table').empty();
     $('#clients_table').append('<tr><td colspan="5" class="text-center">No clients found</td></tr>');
     return;
@@ -242,10 +258,10 @@ renderClients = async () => {
 
   // render clients to table
   $('#clients_table').empty();
-  CLIENTS.forEach((client, index) => {
+  localClients.forEach((client, index) => {
     const tr = `
       <tr id="client_${index}">
-        <td class="text-nowrap">${client.index + 1}</td>
+        <td class="text-nowrap">${index + 1}</td>
         <td>${client.name}</td>
         <td class="text-nowrap">${client.date}</td>
         <td>
@@ -531,3 +547,4 @@ function eliminateDuplicates(arr) {
   // return array of clients
   return Array.from(map.values());
 }
+
